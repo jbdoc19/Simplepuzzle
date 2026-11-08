@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simple Puzzle Maker</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --fg: #1d1d1b; --muted: #6b6a66; --line: #1d1d1b;
+    --cell: #ffffff; --black: #1d1d1b; --sel: #ffd84d; --word: #cfe6ff;
+    --panel: #ffffff; --border: #dcdad3; --accent: #2b5fd9;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+         background: var(--bg); color: var(--fg); }
+  main { max-width: 960px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.4rem; margin: 0 0 12px; }
+  .row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  label { font-size: .85rem; color: var(--muted); display: block; margin-bottom: 4px; }
+  input[type=text], select { font: inherit; padding: 6px 8px; border: 1px solid var(--border);
+         border-radius: 6px; width: 100%; background: #fff; color: var(--fg); }
+  .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+  button { font: inherit; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border);
+           background: #fff; color: var(--fg); cursor: pointer; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #grid { display: grid; border: 2px solid var(--line); width: max-content; user-select: none; outline: none; }
+  .cell { width: 48px; height: 48px; border: 1px solid #999; background: var(--cell); position: relative;
+          display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 600;
+          text-transform: uppercase; cursor: pointer; }
+  .cell.black { background: var(--black); }
+  .cell.word { background: var(--word); }
+  .cell.sel { background: var(--sel); }
+  .cell.black.sel { background: #555; }
+  .num { position: absolute; top: 2px; left: 3px; font-size: 11px; font-weight: 500; }
+  .clues { flex: 1; min-width: 260px; }
+  .clues h2 { font-size: 1rem; margin: 8px 0; }
+  .clue { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .clue span { width: 2.2em; text-align: right; font-weight: 600; flex: none; }
+  .clue small { color: var(--muted); flex: none; min-width: 4.5em; font-family: ui-monospace, monospace; }
+  .hint { font-size: .85rem; color: var(--muted); margin: 6px 0 0; }
+  #msg { margin-top: 10px; font-size: .9rem; min-height: 1.2em; }
+  #msg.err { color: #b3261e; } #msg.ok { color: #1e7b34; }
+  @media (max-width: 480px) { .cell { width: 40px; height: 40px; font-size: 22px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Simple Puzzle Maker</h1>
+
+  <div class="meta">
+    <div><label for="title">Title</label><input id="title" type="text" placeholder="My Mini"></div>
+    <div><label for="author">Author</label><input id="author" type="text"></div>
+    <div><label for="copyright">Copyright</label><input id="copyright" type="text"></div>
+    <div><label for="width">Width</label><select id="width"></select></div>
+    <div><label for="height">Height</label><select id="height"></select></div>
+  </div>
+
+  <div class="row">
+    <div class="panel">
+      <div id="grid" tabindex="0" aria-label="Puzzle grid"></div>
+      <div class="controls">
+        <button id="toggleBlack" type="button">Black square</button>
+        <button id="dir" type="button">Direction: Across</button>
+        <button id="clear" type="button">Clear grid</button>
+      </div>
+      <p class="hint">Click a square and type. Period (.) toggles a black square.<br>
+        Arrows move, Space switches direction, Backspace erases.</p>
+    </div>
+
+    <div class="panel clues">
+      <h2>Across</h2><div id="across"></div>
+      <h2>Down</h2><div id="down"></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="save" class="primary" type="button">Save as .puz</button>
+  </div>
+  <div id="msg" role="status"></div>
+</main>
+
+<script>
+(() => {
+  const MAX = 7, MIN = 2;
+  let W = 5, H = 5;
+  let cells = [];          // '' = empty white, '#' = black, 'A'-'Z' = letter
+  let sel = 0, across = true;
+  const clueText = {};     // key "12A" / "3D" -> text (kept across renumbering when possible)
+
+  const $ = id => document.getElementById(id);
+  const gridEl = $('grid');
+
+  for (const id of ['width', 'height']) {
+    for (let n = MIN; n <= MAX; n++) $(id).add(new Option(n + '', n));
+    $(id).value = 5;
+    $(id).addEventListener('change', () => resize(+$('width').value, +$('height').value));
+  }
+
+  function resize(w, h) {
+    const old = cells, ow = W, oh = H;
+    W = w; H = h;
+    cells = Array(W * H).fill('');
+    for (let r = 0; r < Math.min(oh, H); r++)
+      for (let c = 0; c < Math.min(ow, W); c++) cells[r * W + c] = old[r * ow + c] ?? '';
+    sel = 0;
+    render();
+  }
+
+  const isBlack = i => cells[i] === '#';
+
+  // Standard crossword numbering. Entries of length 1 are not clued.
+  function numbering() {
+    const nums = Array(W * H).fill(0), acrossList = [], downList = [];
+    let n = 0;
+    for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
+      const i = r * W + c;
+      if (isBlack(i)) continue;
+      const a = (c === 0 || isBlack(i - 1)) && c + 1 < W && !isBlack(i + 1);
+      const d = (r === 0 || isBlack(i - W)) && r + 1 < H && !isBlack(i + W);
+      if (a || d) {
+        nums[i] = ++n;
+        if (a) acrossList.push({ n, i, len: runLen(i, 1) });
+        if (d) downList.push({ n, i, len: runLen(i, W) });
+      }
+    }
+    return { nums, acrossList, downList };
+  }
+
+  function runLen(i, step) {
+    let len = 0;
+    while (i < W * H && !isBlack(i)) {
+      len++;
+      if (step === 1 && (i + 1) % W === 0) break;
+      i += step;
+    }
+    return len;
+  }
+
+  function wordCells(i, isAcross) {
+    if (isBlack(i)) return [];
+    const r = Math.floor(i / W), c = i % W, out = [];
+    if (isAcross) {
+      let s = c; while (s > 0 && !isBlack(r * W + s - 1)) s--;
+      for (let x = s; x < W && !isBlack(r * W + x); x++) out.push(r * W + x);
+    } else {
+      let s = r; while (s > 0 && !isBlack((s - 1) * W + c)) s--;
+      for (let y = s; y < H && !isBlack(y * W + c); y++) out.push(y * W + c);
+    }
+    return out;
+  }
+
+  function entryText(e, step) {
+    let s = '';
+    for (let k = 0, i = e.i; k < e.len; k++, i += step) s += cells[i] || '_';
+    return s;
+  }
+
+  function render() {
+    const { nums, acrossList, downList } = numbering();
+    gridEl.style.gridTemplateColumns = `repeat(${W}, auto)`;
+    const word = new Set(wordCells(sel, across));
+    gridEl.innerHTML = '';
+    cells.forEach((v, i) => {
+      const d = document.createElement('div');
+      d.className = 'cell' + (v === '#' ? ' black' : '') + (word.has(i) ? ' word' : '') + (i === sel ? ' sel' : '');
+      if (nums[i]) { const s = document.createElement('span'); s.className = 'num'; s.textContent = nums[i]; d.appendChild(s); }
+      if (v && v !== '#') d.appendChild(document.createTextNode(v));
+      d.addEventListener('mousedown', e => {
+        e.preventDefault();
+        if (sel === i) across = !across; else sel = i;
+        gridEl.focus(); render();
+      });
+      gridEl.appendChild(d);
+    });
+    $('dir').textContent = 'Direction: ' + (across ? 'Across' : 'Down');
+    renderClues('across', acrossList, 'A', 1);
+    renderClues('down', downList, 'D', W);
+  }
+
+  function renderClues(id, list, tag, step) {
+    const box = $(id);
+    const active = document.activeElement;
+    const activeKey = active && active.dataset ? active.dataset.key : null;
+    box.innerHTML = list.length ? '' : '<p class="hint">No entries yet.</p>';
+    for (const e of list) {
+      const key = e.n + tag;
+      const row = document.createElement('div'); row.className = 'clue';
+      const num = document.createElement('span'); num.textContent = e.n;
+      const ans = document.createElement('small'); ans.textContent = entryText(e, step);
+      const inp = document.createElement('input'); inp.type = 'text'; inp.dataset.key = key;
+      inp.value = clueText[key] || ''; inp.placeholder = 'Clue';
+      inp.addEventListener('input', () => { clueText[key] = inp.value; });
+      row.append(num, ans, inp); box.appendChild(row);
+      if (key === activeKey) inp.focus();
+    }
+  }
+
+  function move(dr, dc) {
+    const r = Math.floor(sel / W) + dr, c = sel % W + dc;
+    if (r >= 0 && r < H && c >= 0 && c < W) sel = r * W + c;
+  }
+  const advance = () => across ? move(0, 1) : move(1, 0);
+  const retreat = () => across ? move(0, -1) : move(-1, 0);
+
+  gridEl.addEventListener('keydown', e => {
+    const k = e.key;
+    if (/^[a-zA-Z]$/.test(k)) { cells[sel] = k.toUpperCase(); advance(); }
+    else if (k === '.') { cells[sel] = isBlack(sel) ? '' : '#'; advance(); }
+    else if (k === 'Backspace') { if (!cells[sel] || isBlack(sel)) retreat(); cells[sel] = ''; }
+    else if (k === 'Delete') cells[sel] = '';
+    else if (k === ' ') across = !across;
+    else if (k === 'ArrowRight') move(0, 1);
+    else if (k === 'ArrowLeft') move(0, -1);
+    else if (k === 'ArrowDown') move(1, 0);
+    else if (k === 'ArrowUp') move(-1, 0);
+    else return;
+    e.preventDefault(); render();
+  });
+
+  $('toggleBlack').addEventListener('click', () => { cells[sel] = isBlack(sel) ? '' : '#'; render(); gridEl.focus(); });
+  $('dir').addEventListener('click', () => { across = !across; render(); gridEl.focus(); });
+  $('clear').addEventListener('click', () => {
+    if (confirm('Clear all letters and black squares?')) { cells = Array(W * H).fill(''); render(); }
+  });
+
+  // ---------- .puz (Across Lite) writer ----------
+  function latin1(str) {
+    const out = [];
+    for (const ch of str) { const c = ch.codePointAt(0); out.push(c < 256 ? c : 63); }
+    return out;
+  }
+  function cksum(bytes, c) {
+    for (const b of bytes) { c = (c & 1) ? (c >>> 1) + 0x8000 : c >>> 1; c = (c + b) & 0xffff; }
+    return c;
+  }
+
+  function buildPuz(p) {
+    const { width, height, solution, title, author, copyright, clues, notes } = p;
+    const sol = latin1(solution);
+    const grid = latin1(solution.replace(/[^.]/g, '-'));
+    const z = s => latin1(s).concat(0);
+
+    const header = new Uint8Array(0x34);
+    const dv = new DataView(header.buffer);
+    header.set(latin1('ACROSS&DOWN\0'), 0x02);
+    header.set(latin1('1.3\0'), 0x18);
+    header[0x2C] = width; header[0x2D] = height;
+    dv.setUint16(0x2E, clues.length, true);
+    dv.setUint16(0x30, 0x0001, true);
+    dv.setUint16(0x32, 0x0000, true);
+
+    const cib = cksum(header.subarray(0x2C, 0x34), 0);
+    const text = (c) => {
+      if (title) c = cksum(z(title), c);
+      if (author) c = cksum(z(author), c);
+      if (copyright) c = cksum(z(copyright), c);
+      for (const cl of clues) c = cksum(latin1(cl), c);
+      if (notes) c = cksum(z(notes), c);
+      return c;
+    };
+    const overall = text(cksum(grid, cksum(sol, cib)));
+    const cSol = cksum(sol, 0), cGrid = cksum(grid, 0), cPart = text(0);
+
+    dv.setUint16(0x00, overall, true);
+    dv.setUint16(0x0E, cib, true);
+    const mask = latin1('ICHEATED');
+    const parts = [cib, cSol, cGrid, cPart];
+    for (let k = 0; k < 4; k++) {
+      header[0x10 + k] = mask[k] ^ (parts[k] & 0xff);
+      header[0x14 + k] = mask[k + 4] ^ (parts[k] >> 8);
+    }
+
+    const body = [...sol, ...grid, ...z(title), ...z(author), ...z(copyright)];
+    for (const cl of clues) body.push(...z(cl));
+    body.push(...z(notes));
+    const out = new Uint8Array(header.length + body.length);
+    out.set(header, 0); out.set(body, header.length);
+    return out;
+  }
+
+  function say(text, cls) { const m = $('msg'); m.textContent = text; m.className = cls || ''; }
+
+  $('save').addEventListener('click', () => {
+    const { acrossList, downList } = numbering();
+    if (cells.some(v => v === '')) return say('Fill every white square with a letter before saving.', 'err');
+    if (!acrossList.length && !downList.length) return say('The grid needs at least one word of 2+ letters.', 'err');
+
+    // Clues in .puz order: by number, Across before Down for the same number.
+    const all = [...acrossList.map(e => ({ n: e.n, k: e.n + 'A', o: 0 })),
+                 ...downList.map(e => ({ n: e.n, k: e.n + 'D', o: 1 }))]
+                .sort((a, b) => a.n - b.n || a.o - b.o);
+    const missing = all.filter(e => !(clueText[e.k] || '').trim());
+    if (missing.length) return say('Missing clues: ' + missing.map(e => e.k).join(', '), 'err');
+
+    const title = $('title').value.trim() || 'Untitled';
+    const bytes = buildPuz({
+      width: W, height: H,
+      solution: cells.map(v => v === '#' ? '.' : v).join(''),
+      title, author: $('author').value.trim(), copyright: $('copyright').value.trim(),
+      clues: all.map(e => clueText[e.k].trim()), notes: ''
+    });
+    const blob = new Blob([bytes], { type: 'application/octet-stream' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = (title.replace(/[^\w\- ]+/g, '').trim() || 'puzzle') + '.puz';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    say('Saved ' + a.download, 'ok');
+  });
+
+  window.__puz = { buildPuz };  // exposed for testing
+  resize(5, 5);
+  gridEl.focus();
+})();
+</script>
+</body>
+</html>
