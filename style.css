@@ -1,0 +1,22 @@
+:root { font-family: system-ui, sans-serif; color: #17212b; background: #f3f5f7; }
+body { margin: 0; }
+main { max-width: 900px; margin: auto; padding: 1.5rem; }
+section { background: white; border: 1px solid #d5dce2; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+h1, h2, h3 { margin-top: 0; }
+p { line-height: 1.5; }
+.details { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
+label { display: block; font-weight: 600; }
+input { box-sizing: border-box; font: inherit; }
+.details input, .clue-columns input { display: block; width: 100%; margin-top: .25rem; padding: .4rem; border: 1px solid #aeb9c4; border-radius: 4px; }
+button { font: inherit; padding: .5rem .8rem; cursor: pointer; }
+button[aria-pressed="true"] { background: #17212b; color: white; }
+.grid { display: grid; width: fit-content; margin-top: 1rem; border-top: 1px solid #17212b; border-left: 1px solid #17212b; }
+.cell { position: relative; width: 42px; height: 42px; border-right: 1px solid #17212b; border-bottom: 1px solid #17212b; }
+.cell.block { background: #17212b; }
+.cell input { width: 100%; height: 100%; border: 0; border-radius: 0; background: transparent; text-align: center; text-transform: uppercase; font-size: 1.25rem; padding: 8px 0 0; }
+.cell.block input { color: white; cursor: pointer; }
+.cell span { position: absolute; top: 1px; left: 3px; font-size: 10px; pointer-events: none; }
+.clue-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+.clue-columns label { margin-bottom: .75rem; }
+#status { color: #a52c20; }
+@media (max-width: 380px) { .cell { width: 36px; height: 36px; } }
